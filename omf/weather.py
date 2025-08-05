@@ -126,7 +126,7 @@ def pullDarksky(year, lat, lon, datatype, units='si', api_key=_key_darksky, path
 	if any(i.status_code != 200 for i in data):
 		# message = data[0].json()['error']
 		# raise Exception(message)
-		raise ApiError(data[0].json()['error'], status_code=400)
+		raise Exception(data[0].json()['error'], status_code=400)
 	data = [i.json() for i in data]
 	print(data)
 	# print(data)
@@ -791,55 +791,6 @@ def nsrbd_latlon_to_wkt(longitude, latitude):
 		raise ValueError('invalid longitude')  
 	return 'POINT({} {})'.format(longitude, latitude)
 
-def get_nrsdb_data(data_set, longitude, latitude, year, api_key, utc='true', leap_day='false', email='admin@omf.coop', interval=None, filename=None):
-	'''Create nrsdb factory and execute query. Optional output to file or return the response object.'''
-	print("NRSDB found")
-	base_url = 'https://developer.nrel.gov'
-	request_url = ""
-	params = {}
-	params['api_key'] = api_key
-	params['wkt'] = nsrbd_latlon_to_wkt(latitude=latitude, longitude=longitude)
-	params['names'] = str(year)
-	params['utc'] = utc
-	params['leap_day'] = leap_day
-	params['email'] = email
-
-	# Physical Solar Model
-	if data_set == 'psm':
-		params["interval"] = interval
-		request_url = os.path.join( base_url, 'api/solar/nsrdb_psm3_download.csv' )
-	# physical solar model v3 tsm
-	elif data_set == 'psm_tmy':
-		request_url = os.path.join( base_url, 'api/nsrdb_api/solar/nsrdb_psm3_tmy_download.csv' )
-	# SUNY International
-	elif data_set == 'suny':
-		request_url = os.path.join( base_url, 'api/solar/suny_india_download.csv' )
-	# spectral tmy
-	elif data_set == 'spectral_tmy':
-		request_url = os.path.join( base_url,' api/nsrdb_api/solar/spectral_tmy_india_download.csv' )
-	data = requests.get( url=request_url, params=params)
-
-	if data.status_code != 200:
-		# This means something went wrong.
-		raise ApiError(data.text, status_code=data.status_code)
-	csv_lines = [line.decode() for line in data.iter_lines()]
-	reader = csv.reader(csv_lines, delimiter=',')
-	if filename is not None:
-		with open(filename, 'w', newline='') as csvfile:
-			for i in reader:
-				csvwriter = csv.writer(csvfile, delimiter=',')
-				csvwriter.writerow(i)
-		return data
-	else:
-		#Transform data, and resubmit in friendly format for frontend
-		data = pd.DataFrame(reader)
-		colNames = (data.iloc[2][:].values)
-		print(data)
-		data.rename(columns={key:val for key, val in enumerate(colNames)}, inplace=True)
-		#Maybe change depending on what's easy/flexible but this gives good display
-		return data
-
-
 SURFRAD_COLUMNS = [
     'year', 'jday', 'month', 'day', 'hour', 'minute', 'dt', 'zen',
     'dw_solar', 'dw_solar_flag', 'uw_solar', 'uw_solar_flag', 'direct_n',
@@ -1110,7 +1061,6 @@ def getSolarZenith(lat, lon, datetime, timezone):
     solar_altitude = pysolar.solar.get_altitude(lat,lon,date)
     solar_zenith = 90 - solar_altitude
     return solar_zenith
-
 
 def preparePredictionVectors(year='2018', lat=30.581736, lon=-98.024098, station='TX_Austin_33_NW', timezone='US/Central'):
     cloudCoverData, pressureData = _getDarkSkyCloudCoverForYear(year, lat, lon)
@@ -1414,20 +1364,18 @@ def get_cds_coper_data(latitude, longitude, year, modelDir):
 	os.environ['EIA_KEY'] = '431b0c60584d74a1ba22c60dbd929619'
 	print(f'\nGetting new ERA5 data for ERA5_weather_data_{year}_{latitude}_{longitude}.zip')
 	directory_name = modelDir + "/copernicusData"
-	weather_data_dir = os.mkdir(directory_name)
-	asyncio.run( format_request(
-	variable='default',
-	year=str(year),
-	latitude=latitude,
-	longitude=longitude,
-	dataDir=directory_name ) )
+	os.mkdir(directory_name)
 
-	counter = 0
-	if os.is_dir(directory_name):
-		for file in weather_data_dir.iterdir():
-			if file.suffix == '.zip':
-				counter += 1
-	if counter == 6:
+	files = os.listdir(directory_name)
+	if len(files) == 6:
+		requestSuccess = True
+	else:
+		asyncio.run( format_request(
+			variable='default',
+			year=str(year),
+			latitude=latitude,
+			longitude=longitude,
+			dataDir=directory_name ) )
 		requestSuccess = True
 	return requestSuccess
 

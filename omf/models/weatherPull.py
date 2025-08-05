@@ -5,12 +5,61 @@ from omf import weather
 from omf.models import __neoMetaModel__
 from omf.models.__neoMetaModel__ import *
 from datetime import timedelta, datetime
+import requests
 
 
 # Model metadata:
 modelName, template = __neoMetaModel__.metadata(__file__)
 tooltip = "Download historical weather data for a given location for use in other models."
 hidden = False
+
+def get_nrsdb_data(data_set, longitude, latitude, year, api_key, utc='true', leap_day='false', email='admin@omf.coop', interval=None, filename=None):
+	'''Create nrsdb factory and execute query. Optional output to file or return the response object.'''
+	print("NRSDB found")
+	base_url = 'https://developer.nrel.gov'
+	request_url = ""
+	params = {}
+	params['api_key'] = api_key
+	params['wkt'] = weather.nsrbd_latlon_to_wkt(latitude=latitude, longitude=longitude)
+	params['names'] = str(year)
+	params['utc'] = utc
+	params['leap_day'] = leap_day
+	params['email'] = email
+
+	# Physical Solar Model
+	if data_set == 'psm':
+		params["interval"] = interval
+		request_url = os.path.join( base_url, 'api/solar/nsrdb_psm3_download.csv' )
+	# physical solar model v3 tsm
+	elif data_set == 'psm_tmy':
+		request_url = os.path.join( base_url, 'api/nsrdb_api/solar/nsrdb_psm3_tmy_download.csv' )
+	# SUNY International
+	elif data_set == 'suny':
+		request_url = os.path.join( base_url, 'api/solar/suny_india_download.csv' )
+	# spectral tmy
+	elif data_set == 'spectral_tmy':
+		request_url = os.path.join( base_url,' api/nsrdb_api/solar/spectral_tmy_india_download.csv' )
+	data = requests.get( url=request_url, params=params)
+
+	if data.status_code != 200:
+		# This means something went wrong.
+		raise Exception(data.text, status_code=data.status_code)
+	csv_lines = [line.decode() for line in data.iter_lines()]
+	reader = csv.reader(csv_lines, delimiter=',')
+	if filename is not None:
+		with open(filename, 'w', newline='') as csvfile:
+			for i in reader:
+				csvwriter = csv.writer(csvfile, delimiter=',')
+				csvwriter.writerow(i)
+		return data
+	else:
+		#Transform data, and resubmit in friendly format for frontend
+		data = pd.DataFrame(reader)
+		colNames = (data.iloc[2][:].values)
+		print(data)
+		data.rename(columns={key:val for key, val in enumerate(colNames)}, inplace=True)
+		#Maybe change depending on what's easy/flexible but this gives good display
+		return data
 
 def work(modelDir, inputDict):
 	''' Run the model in its directory.
@@ -35,7 +84,7 @@ def work(modelDir, inputDict):
 		nsrdbkey = 'rnvNJxNENljf60SBKGxkGVwkXls4IAKs1M8uZl56'
 		year = inputDict['year']
 		param = inputDict['weatherParameterNRSDB']
-		data = weather.get_nrsdb_data('psm', float(long), float(lat), year, nsrdbkey, interval=60)
+		data = get_nrsdb_data('psm', float(long), float(lat), year, nsrdbkey, interval=60)
 		#Data must be a list. Extract correct column from returned pandas df, return this column as array of int
 		data = list(data[param].values[3:].astype(float))
 		print(data)
@@ -137,7 +186,6 @@ def work(modelDir, inputDict):
 		'rawData': data,
 		'errorCount': len([e for e in data if e in [-9999.0, -99999.0, -999.0, -99.0]]),
 		'stdout': 'Success' }
-
 
 def new(modelDir):
 	''' Create a new instance of this model. Returns true on success, false on failure. '''
